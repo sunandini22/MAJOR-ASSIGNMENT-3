@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Force-Directed Graph</title>
+    <style>
+        .node circle {
+            fill-opacity: .5;
+            stroke: purple;
+            stroke-width: 1.5px;
+        }
+        .link line {
+            stroke: green;
+            stroke-opacity: 5;
+        }
+        .label text {
+            font-size: x-small;
+            font-family: sans-serif;
+        }
+        .inactive {
+            opacity: .5;
+        }
+    </style>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+<body>
+    <script>
+        d3.json("network_graph.json").then(data => {
+            const svg = d3.select('body').append("svg")
+                .attr("viewBox", "0 0 3000 3000");
+            const graph = new ForceDirectedGraph(svg, data);
+            graph.init();
+        });
+
+        class ForceDirectedGraph {
+            constructor(svg, data) {
+                this.svg = svg;
+                this.data = data;
+                this.setupGraph();
+            }
+
+            setupGraph() {
+                let viewBox = this.svg.attr("viewBox").split(' ');
+                this.width = +viewBox[2];
+                this.height = +viewBox[3];
+                this.mainGroup = this.svg.append("g").attr("transform", "translate(0, 50)");
+
+                this.degrees = {};
+                this.data.links.forEach(link => {
+                    this.degrees[link.source.index] = (this.degrees[link.source.index] || 0) + 1;
+                    this.degrees[link.target.index] = (this.degrees[link.target.index] || 0) + 1;
+                });
+
+                this.radiusScale = d3.scaleLinear().domain(d3.extent(Object.values(this.degrees))).range([5, 10]);
+                this.linkWidthScale = d3.scaleLinear().domain(d3.extent(this.data.links, d => d.value)).range([50, 40]);
+                this.colorScale = () => 'purple'; 
+            }
+
+            init() {
+                this.createLinks();
+                this.createNodes();
+                this.applyForces();
+            }
+
+            createLinks() {
+                this.linkElements = this.mainGroup.append("g").attr('class', 'link')
+                    .attr('transform', `translate(${this.width / 2},${this.height / 2})`)
+                    .selectAll("line").data(this.data.links).enter().append("line")
+                    .style("stroke-width", d => this.linkWidthScale(d.value));
+            }
+
+            createNodes() {
+                const nodeGroup = this.mainGroup.append("g").attr('class', 'node')
+                    .attr('transform', `translate(${this.width / 2},${this.height / 2})`);
+
+                this.nodeElements = nodeGroup.selectAll("g")
+                    .data(this.data.nodes).enter().append('g')
+                    .on("mouseenter", e => this.nodeMouseEnter(e))
+                    .on("mouseleave", () => this.nodeMouseLeave());
+
+                this.nodeElements.append("circle")
+                    .attr("r", d => this.radiusScale(this.degrees[d.index]))
+                    .attr("fill", d => this.colorScale(d.group))
+            }
+
+            nodeMouseEnter(e) {
+                this.nodeElements.classed("inactive", true);
+                d3.selectAll(`.gr_${e.target.group}`).classed("inactive", false);
+            }
+
+            nodeMouseLeave() {
+                this.nodeElements.classed("inactive", false);
+            }
+
+            applyForces() {
+                const simulation = d3.forceSimulation(this.data.nodes)
+                    .force("link", d3.forceLink(this.data.links)
+                        .id(d => d.id)
+                        .distance(40)
+                        .strength(0.3))
+                    .force("charge", d3.forceManyBody().strength(-15))
+                    .force("center", d3.forceCenter(this.width / 2, this.height / 2))
+                    .force("collide", d3.forceCollide(d => this.radiusScale(this.degrees[d.index])).strength(0.7))
+                    .on("tick", () => this.onTick());
+
+                this.svg.call(d3.zoom()
+                    .extent([[0, 0], [this.width, this.height]])
+                    .scaleExtent([0.2, 8])
+                    .on("zoom", e => this.mainGroup.attr("transform", e.transform)));
+            }
+
+            onTick() {
+                this.linkElements
+                    .attr("x1", d => d.source.x)
+                    .attr("y1", d => d.source.y)
+                    .attr("x2", d => d.target.x)
+                    .attr("y2", d => d.target.y);
+
+                this.nodeElements
+                    .attr("transform", d => `translate(${d.x},${d.y})`);
+            }
+        }
+    </script>
+</body>
+</html>
